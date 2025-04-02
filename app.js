@@ -119,16 +119,37 @@ function actualizarHorasDisponibles(fecha) {
         }
     }
     
-    // Generar slots de tiempo
-    for (let hora = HORARIO_INICIO; hora < HORARIO_FIN; hora += 30) {
+    // Generar slots de tiempo cada 15 minutos
+    for (let hora = HORARIO_INICIO; hora < HORARIO_FIN; hora += 15) {
         const horaFormateada = `${Math.floor(hora/60).toString().padStart(2, '0')}:${(hora%60).toString().padStart(2, '0')}`;
         const slotElemento = document.createElement('span');
+        const fechaHora = new Date(fecha);
+        fechaHora.setHours(Math.floor(hora/60), hora%60, 0, 0);
         
-        if (esSlotDisponible(fecha, hora)) {
+        // Verificar si es mañana y después de las 9:00 PM
+        if (esManana && horaActualMinutos >= HORA_LIMITE_AGENDAMIENTO && hora < 12 * 60) {
+            slotElemento.className = 'hora-bloqueada';
+            slotElemento.textContent = horaFormateada;
+        }
+        // Verificar si el slot está bloqueado o tiene una cita agendada
+        else if (estado.horariosBloqueados.has(fechaHora.toISOString()) || 
+            estado.citas.some(cita => {
+                const citaInicio = new Date(cita.fecha);
+                const citaFin = new Date(citaInicio);
+                citaFin.setMinutes(citaInicio.getMinutes() + cita.duracion);
+                return fechaHora >= citaInicio && fechaHora < citaFin;
+            })) {
+            slotElemento.className = 'hora-bloqueada';
+            slotElemento.textContent = horaFormateada;
+        }
+        // Verificar si el slot está disponible
+        else if (esSlotDisponible(fecha, hora)) {
             slotElemento.className = 'hora-disponible';
             slotElemento.textContent = horaFormateada;
             slotElemento.addEventListener('click', () => seleccionarHora(fecha, hora));
-        } else {
+        }
+        // Si no está disponible por otras razones (horario laboral, etc.)
+        else {
             slotElemento.className = 'hora-no-disponible';
             slotElemento.textContent = horaFormateada;
         }
@@ -138,46 +159,49 @@ function actualizarHorasDisponibles(fecha) {
 }
 
 function esSlotDisponible(fecha, hora) {
-    const fechaHora = new Date(fecha);
-    fechaHora.setHours(Math.floor(hora/60), hora%60);
-    
-    const horaActual = new Date();
-    const horaActualMinutos = horaActual.getHours() * 60 + horaActual.getMinutes();
-    
-    // Si es el día actual y la hora ya pasó, no permitir agendar
-    if (fecha.getDate() === horaActual.getDate() && 
-        fecha.getMonth() === horaActual.getMonth() && 
-        fecha.getFullYear() === horaActual.getFullYear() && 
-        hora <= horaActualMinutos) {
-        return false;
-    }
-    
-    // Si es mañana y la hora actual es después de las 21:00, bloquear solo horarios de la mañana
-    if (fecha.getDate() === new Date().getDate() + 1 && 
-        horaActualMinutos >= HORA_LIMITE_AGENDAMIENTO && 
-        hora < 12 * 60) { // Antes de las 12:00
-        return false;
-    }
-    
-    // Verificar si hay suficiente tiempo para la duración de la cita
-    const duracion = estado.procedimientoSeleccionado ? estado.procedimientoSeleccionado.duracion : 30;
-    if (hora + duracion > HORARIO_FIN) {
-        return false;
-    }
-    
-    // Verificar si está bloqueado
-    if (estado.horariosBloqueados.has(fechaHora.toISOString())) {
-        return false;
-    }
-    
-    // Verificar si hay citas que se sobre ponen
-    return !estado.citas.some(cita => {
-        const citaInicio = new Date(cita.fecha);
-        const citaFin = new Date(citaInicio);
-        citaFin.setMinutes(citaInicio.getMinutes() + cita.duracion);
+    const slotInicio = new Date(fecha);
+    slotInicio.setHours(Math.floor(hora/60), hora%60, 0, 0);
+
+    // Verificar si es una hora pasada
+    const ahora = new Date();
+    if (slotInicio < ahora) return false;
+
+    // Verificar horario laboral
+    if (hora < HORARIO_INICIO || hora >= HORARIO_FIN) return false;
+
+    const duracion = estado.procedimientoSeleccionado?.duracion || 30;
+    const slotFin = new Date(slotInicio);
+    slotFin.setMinutes(slotFin.getMinutes() + duracion);
+
+    // Verificar todos los slots de 15 minutos en el periodo
+    let slotActual = new Date(slotInicio);
+    while (slotActual < slotFin) {
+        const slotHora = slotActual.getHours() * 60 + slotActual.getMinutes();
         
-        return fechaHora >= citaInicio && fechaHora < citaFin;
-    });
+        // Verificar horario laboral para cada slot
+        if (slotHora >= HORARIO_FIN) return false;
+        
+        // Verificar si está bloqueado
+        if (estado.horariosBloqueados.has(slotActual.toISOString())) {
+            return false;
+        }
+
+        // Verificar solapamiento con otras citas
+        const tieneCita = estado.citas.some(cita => {
+            const citaInicio = new Date(cita.fecha);
+            const citaFin = new Date(citaInicio);
+            citaFin.setMinutes(citaInicio.getMinutes() + cita.duracion);
+            
+            // Verificar si el slot actual está dentro del rango de la cita existente
+            return slotActual >= citaInicio && slotActual < citaFin;
+        });
+
+        if (tieneCita) return false;
+
+        slotActual.setMinutes(slotActual.getMinutes() + 15);
+    }
+
+    return true;
 }
 
 function seleccionarHora(fecha, hora) {
@@ -203,44 +227,59 @@ function confirmarCita() {
         alert('Por favor, seleccione un procedimiento y una fecha');
         return;
     }
-    
+
+    // 1. Crear el objeto cita
     const cita = {
         fecha: estado.fechaSeleccionada.toISOString(),
         procedimiento: estado.procedimientoSeleccionado.nombre,
         duracion: estado.procedimientoSeleccionado.duracion
     };
-    
-    // Bloquear todos los slots necesarios para la duración de la cita
-    const fechaInicio = new Date(cita.fecha);
+
+    // 2. Calcular el periodo exacto de la cita
+    const fechaInicio = new Date(estado.fechaSeleccionada);
     const fechaFin = new Date(fechaInicio);
-    fechaFin.setMinutes(fechaInicio.getMinutes() + cita.duracion);
+    fechaFin.setMinutes(fechaFin.getMinutes() + cita.duracion);
+
+    // 3. Bloquear slots de 15 minutos DENTRO del periodo exacto
+    let slotActual = new Date(fechaInicio);
     
-    // Agregar la cita al estado
+    // Asegurar que comenzamos exactamente en el inicio de la cita
+    slotActual.setSeconds(0);
+    slotActual.setMilliseconds(0);
+
+    while (slotActual < fechaFin) {
+        // Solo bloquear si está dentro del periodo de la cita
+        if (slotActual >= fechaInicio) {
+            estado.horariosBloqueados.add(slotActual.toISOString());
+        }
+        
+        // Avanzar exactamente 15 minutos
+        slotActual = new Date(slotActual);
+        slotActual.setMinutes(slotActual.getMinutes() + 15);
+    }
+
+    // 4. Guardar cambios
     estado.citas.push(cita);
-    
-    // Guardar en localStorage
     localStorage.setItem('citas', JSON.stringify(estado.citas));
-    
-    // Cerrar el modal
+    localStorage.setItem('horariosBloqueados', JSON.stringify([...estado.horariosBloqueados]));
+
+    // 5. Cerrar modal y actualizar
     const modal = bootstrap.Modal.getInstance(document.getElementById('confirmacionModal'));
     modal.hide();
     
-    // Actualizar la vista
-    actualizarCalendario();
-    
-    // Limpiar selección
+    // 6. Limpiar selección
     estado.procedimientoSeleccionado = null;
     estado.fechaSeleccionada = null;
     
-    // Mostrar mensaje de éxito
-    alert('Cita agendada con éxito');
-}
-
-function cargarCitasGuardadas() {
-    const citasGuardadas = localStorage.getItem('citas');
-    if (citasGuardadas) {
-        estado.citas = JSON.parse(citasGuardadas);
-    }
+    // 7. Actualizar la vista y remover la selección visual
+    document.querySelectorAll('.procedimiento-item').forEach(el => {
+        el.classList.remove('seleccionado');
+    });
+    
+    // 8. Actualizar el calendario
+    actualizarCalendario();
+    
+    alert('Cita agendada correctamente');
 }
 
 function actualizarCalendario() {
@@ -263,7 +302,9 @@ function actualizarCalendario() {
 document.getElementById('borrar-citas').addEventListener('click', () => {
     if (confirm('¿Está seguro de que desea borrar todas las citas?')) {
         localStorage.removeItem('citas');
+        localStorage.removeItem('horariosBloqueados');
         estado.citas = [];
+        estado.horariosBloqueados = new Set();
         actualizarCalendario();
         alert('Todas las citas han sido borradas');
     }
