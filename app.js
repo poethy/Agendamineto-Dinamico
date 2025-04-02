@@ -1,12 +1,14 @@
 const procedimientos = [
     { id: 1, nombre: 'Cejas', duracion: 30 },
-    { id: 2, nombre: 'Ena?', duracion: 45 },
+    { id: 2, nombre: 'Henna', duracion: 45 },
     { id: 3, nombre: 'Pestañas', duracion: 60 }
 ];
 
-let estado = {
+// Estado global
+const estado = {
     procedimientoSeleccionado: null,
     fechaSeleccionada: null,
+    horaSeleccionada: null,
     citas: [],
     horariosBloqueados: new Set()
 };
@@ -15,6 +17,23 @@ let estado = {
 const HORARIO_INICIO = 9 * 60; // 9:00AM
 const HORARIO_FIN = 20 * 60;   // 8:00PM
 const HORA_LIMITE_AGENDAMIENTO = 21 * 60; // 9:00PM
+
+// Función para actualizar la hora actual de Colombia
+function actualizarHoraColombia() {
+    const ahora = new Date();
+    const horaColombia = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    const horaFormateada = horaColombia.toLocaleTimeString('es-ES', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false 
+    });
+    document.getElementById('hora-actual').textContent = horaFormateada;
+}
+
+// Actualizar la hora cada segundo
+setInterval(actualizarHoraColombia, 1000);
+actualizarHoraColombia(); // Actualizar inmediatamente al cargar
 
 document.addEventListener('DOMContentLoaded', () => {
     cargarProcedimientos();
@@ -80,13 +99,24 @@ function actualizarHorasDisponibles(fecha) {
     contenedor.innerHTML = '';
     
     const esManana = fecha.getDate() === new Date().getDate() + 1;
+    const esHoy = fecha.getDate() === new Date().getDate() && 
+                  fecha.getMonth() === new Date().getMonth() && 
+                  fecha.getFullYear() === new Date().getFullYear();
     const horaActual = new Date();
     const horaActualMinutos = horaActual.getHours() * 60 + horaActual.getMinutes();
     
+    // Si es el día actual y ya pasó la hora límite, mostrar mensaje
+    if (esHoy && horaActualMinutos >= HORARIO_FIN) {
+        contenedor.innerHTML = '<p class="text-danger">No se pueden agendar citas para hoy</p>';
+        return;
+    }
+    
     // Verificar si se puede agendar para mañana
     if (esManana && horaActualMinutos >= HORA_LIMITE_AGENDAMIENTO) {
-        contenedor.innerHTML = '<p class="text-danger">No disponible para agendamiento</p>';
-        return;
+        // Mostrar mensaje solo para horarios antes de las 12:00
+        if (horaActualMinutos >= HORA_LIMITE_AGENDAMIENTO) {
+            contenedor.innerHTML = '<p class="text-danger">Horarios de la mañana no disponibles</p>';
+        }
     }
     
     // Generar slots de tiempo
@@ -110,6 +140,30 @@ function actualizarHorasDisponibles(fecha) {
 function esSlotDisponible(fecha, hora) {
     const fechaHora = new Date(fecha);
     fechaHora.setHours(Math.floor(hora/60), hora%60);
+    
+    const horaActual = new Date();
+    const horaActualMinutos = horaActual.getHours() * 60 + horaActual.getMinutes();
+    
+    // Si es el día actual y la hora ya pasó, no permitir agendar
+    if (fecha.getDate() === horaActual.getDate() && 
+        fecha.getMonth() === horaActual.getMonth() && 
+        fecha.getFullYear() === horaActual.getFullYear() && 
+        hora <= horaActualMinutos) {
+        return false;
+    }
+    
+    // Si es mañana y la hora actual es después de las 21:00, bloquear solo horarios de la mañana
+    if (fecha.getDate() === new Date().getDate() + 1 && 
+        horaActualMinutos >= HORA_LIMITE_AGENDAMIENTO && 
+        hora < 12 * 60) { // Antes de las 12:00
+        return false;
+    }
+    
+    // Verificar si hay suficiente tiempo para la duración de la cita
+    const duracion = estado.procedimientoSeleccionado ? estado.procedimientoSeleccionado.duracion : 30;
+    if (hora + duracion > HORARIO_FIN) {
+        return false;
+    }
     
     // Verificar si está bloqueado
     if (estado.horariosBloqueados.has(fechaHora.toISOString())) {
@@ -137,33 +191,49 @@ function seleccionarHora(fecha, hora) {
     
     const fechaFormateada = estado.fechaSeleccionada.toLocaleString('es-ES');
     document.getElementById('fecha-seleccionada').textContent = fechaFormateada;
+    document.getElementById('procedimiento-seleccionado').textContent = estado.procedimientoSeleccionado.nombre;
     
     const modal = new bootstrap.Modal(document.getElementById('confirmacionModal'));
     modal.show();
 }
 
 // Confirmar cita
-document.getElementById('confirmar-cita').addEventListener('click', () => {
-    if (estado.fechaSeleccionada && estado.procedimientoSeleccionado) {
-        const nuevaCita = {
-            fecha: estado.fechaSeleccionada.toISOString(),
-            procedimiento: estado.procedimientoSeleccionado.nombre,
-            duracion: estado.procedimientoSeleccionado.duracion
-        };
-        
-        estado.citas.push(nuevaCita);
-        guardarCitas();
-        actualizarCalendario();
-        
-        const modal = bootstrap.Modal.getInstance(document.getElementById('confirmacionModal'));
-        modal.hide();
-        
-        alert('¡Cita agendada con éxito!');
+function confirmarCita() {
+    if (!estado.procedimientoSeleccionado || !estado.fechaSeleccionada) {
+        alert('Por favor, seleccione un procedimiento y una fecha');
+        return;
     }
-});
-
-function guardarCitas() {
+    
+    const cita = {
+        fecha: estado.fechaSeleccionada.toISOString(),
+        procedimiento: estado.procedimientoSeleccionado.nombre,
+        duracion: estado.procedimientoSeleccionado.duracion
+    };
+    
+    // Bloquear todos los slots necesarios para la duración de la cita
+    const fechaInicio = new Date(cita.fecha);
+    const fechaFin = new Date(fechaInicio);
+    fechaFin.setMinutes(fechaInicio.getMinutes() + cita.duracion);
+    
+    // Agregar la cita al estado
+    estado.citas.push(cita);
+    
+    // Guardar en localStorage
     localStorage.setItem('citas', JSON.stringify(estado.citas));
+    
+    // Cerrar el modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('confirmacionModal'));
+    modal.hide();
+    
+    // Actualizar la vista
+    actualizarCalendario();
+    
+    // Limpiar selección
+    estado.procedimientoSeleccionado = null;
+    estado.fechaSeleccionada = null;
+    
+    // Mostrar mensaje de éxito
+    alert('Cita agendada con éxito');
 }
 
 function cargarCitasGuardadas() {
@@ -177,14 +247,27 @@ function actualizarCalendario() {
     const contenedor = document.getElementById('calendario');
     contenedor.innerHTML = '';
     inicializarCalendario();
+    
+    // Restaurar la selección del procedimiento si existe
+    if (estado.procedimientoSeleccionado) {
+        const procedimientos = document.querySelectorAll('.procedimiento-item');
+        procedimientos.forEach(proc => {
+            if (proc.querySelector('h6').textContent === estado.procedimientoSeleccionado.nombre) {
+                proc.classList.add('seleccionado');
+            }
+        });
+    }
 }
 
 // Función de testing para borrar todas las citas
 document.getElementById('borrar-citas').addEventListener('click', () => {
-    if (confirm('¿Está seguro que desea borrar todas las citas? Esta acción no se puede deshacer.')) {
-        estado.citas = [];
+    if (confirm('¿Está seguro de que desea borrar todas las citas?')) {
         localStorage.removeItem('citas');
+        estado.citas = [];
         actualizarCalendario();
-        alert('Todas las citas han sido borradas.');
+        alert('Todas las citas han sido borradas');
     }
-}); 
+});
+
+// Event Listeners
+document.getElementById('confirmar-cita').addEventListener('click', confirmarCita); 

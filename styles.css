@@ -1,20 +1,32 @@
 .procedimiento-item {
-    cursor: pointer;
-    padding: 10px;
+    padding: 15px;
     margin-bottom: 10px;
     border: 1px solid #ddd;
     border-radius: 5px;
+    cursor: pointer;
     transition: all 0.3s ease;
+    background-color: white;
 }
 
 .procedimiento-item:hover {
     background-color: #f8f9fa;
     transform: translateY(-2px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
 .procedimiento-item.seleccionado {
-    background-color: #e9ecef;
-    border-color: #0d6efd;
+    background-color: #e3f2fd;
+    border-color: #90caf9;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.procedimiento-item h6 {
+    margin: 0;
+    color: #333;
+}
+
+.procedimiento-item small {
+    color: #666;
 }
 
 .hora-disponible {
@@ -25,11 +37,13 @@
     border-radius: 3px;
     display: inline-block;
     transition: all 0.3s ease;
+    background-color: white;
 }
 
 .hora-disponible:hover {
     background-color: #28a745;
     color: white;
+    transform: translateY(-2px);
 }
 
 .hora-no-disponible {
@@ -41,6 +55,26 @@
     background-color: #dc3545;
     color: white;
     cursor: not-allowed;
+    font-weight: bold;
+    opacity: 0.9;
+    transition: all 0.3s ease;
+}
+
+.hora-no-disponible:hover {
+    background-color: #dc3545;
+    color: white;
+    opacity: 1;
+}
+
+.hora-restringida {
+    background-color: #ffc107;
+    border-color: #ffc107;
+    color: #000;
+}
+
+.hora-restringida:hover {
+    background-color: #ffc107;
+    color: #000;
 }
 
 #calendario {
@@ -62,4 +96,15 @@
 .dia-calendario.seleccionado {
     border-color: #0d6efd;
     background-color: #f8f9fa;
+}
+
+.hora-actual {
+    font-size: 1.2rem;
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+#hora-actual {
+    font-weight: bold;
+    color: #007bff;
 } 
